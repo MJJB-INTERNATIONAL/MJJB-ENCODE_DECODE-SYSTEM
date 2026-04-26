@@ -1,0 +1,975 @@
+﻿-- REMEMBER THAT, I HAVE:
+- WINDOWS 7
+- python 3.8.10
+- GITHUB ACTION (FREE)
+
+
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+FULLY FIXED File Transfer - All Issues Resolved
+- Folder upload support
+- Correct reverse routing (MB→Computer, CM→Mobile)
+- Preserves original filenames with extensions
+- 11-18+ GB streaming support
+Base: E:\Python38\Py.MJJB\Transfers
+"""
+
+import http.server
+import socketserver
+import os
+import json
+import urllib.parse
+import shutil
+from pathlib import Path
+import webbrowser
+import socket
+import time
+import tempfile
+from datetime import datetime
+import re
+import platform
+import mimetypes
+
+PORT = 8080
+BASE_DIR = r"E:\Python38\Py.MJJB\Transfers"
+SHARED_FOLDER = os.path.join(BASE_DIR, "Shared_Files")
+TEMP_FOLDER = os.path.join(BASE_DIR, "Temp")
+METADATA_FILE = os.path.join(BASE_DIR, "file_tags.json")
+CHUNK_SIZE = 1024 * 1024
+
+COMPUTER_DOWNLOADS = os.path.join(os.path.expanduser("~"), "Downloads")
+MOBILE_DOWNLOADS = os.path.join(BASE_DIR, "Mobile_Ready")
+
+for folder in [SHARED_FOLDER, TEMP_FOLDER, MOBILE_DOWNLOADS, COMPUTER_DOWNLOADS]:
+    Path(folder).mkdir(parents=True, exist_ok=True)
+
+if os.path.exists(METADATA_FILE):
+    try:
+        with open(METADATA_FILE, 'r') as f:
+            file_tags = json.load(f)
+    except:
+        file_tags = {}
+else:
+    file_tags = {}
+
+def save_tags():
+    with open(METADATA_FILE, 'w') as f:
+        json.dump(file_tags, f, indent=2)
+
+def get_drives():
+    drives = []
+    if platform.system() == 'Windows':
+        for letter in range(65, 91):
+            drive = chr(letter) + ':\\'
+            if os.path.exists(drive):
+                drives.append(drive)
+    else:
+        drives.append('/')
+    return drives
+
+print("=" * 70)
+print("✅ FULLY FIXED - All Issues Resolved")
+print("=" * 70)
+
+HTML_PAGE = r"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔄 File Transfer - Fixed</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Segoe UI',Arial,sans-serif;background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);min-height:100vh;padding:15px;color:#333}
+        .container{max-width:1000px;margin:0 auto}
+        .header{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:20px;border-radius:15px;text-align:center;margin-bottom:20px;box-shadow:0 10px 30px rgba(0,0,0,0.3)}
+        .header h1{font-size:1.8em;margin-bottom:5px}
+        .stats-row{display:flex;justify-content:center;gap:15px;margin-top:12px;flex-wrap:wrap}
+        .stat{background:rgba(255,255,255,0.2);padding:6px 15px;border-radius:15px;font-size:.85em}
+        .stat.cm{border:2px solid #00d2ff}
+        .stat.mb{border:2px solid #38ef7d}
+        .card{background:#fff;border-radius:15px;padding:20px;margin-bottom:20px;box-shadow:0 5px 20px rgba(0,0,0,0.2)}
+        .card h2{color:#302b63;margin-bottom:12px;font-size:1.2em;border-bottom:2px solid #667eea;padding-bottom:8px}
+        
+        .upload-box{border:3px dashed #667eea;border-radius:15px;padding:30px;text-align:center;background:#f8f9ff;cursor:pointer;transition:.3s}
+        .upload-box:hover{background:#eef0ff}
+        .upload-box.dragover{background:#e0e4ff;transform:scale(1.01)}
+        .upload-box input{display:none}
+        
+        .info-box{background:#fff3cd;padding:10px 15px;border-radius:8px;margin:10px 0;font-size:.85em}
+        
+        .device-tag{display:inline-block;padding:4px 12px;border-radius:12px;font-weight:700;font-size:.8em;margin:3px}
+        .tag-cm{background:#e6fbff;color:#0099cc}
+        .tag-mb{background:#e6fff0;color:#11998e}
+        
+        .btn{padding:10px 20px;border:none;border-radius:25px;cursor:pointer;font-weight:700;font-size:.9em;margin:3px;transition:.3s;display:inline-block;text-decoration:none}
+        .btn:hover{transform:translateY(-2px);box-shadow:0 5px 15px rgba(0,0,0,0.2)}
+        .btn-primary{background:#667eea;color:#fff}
+        .btn-success{background:#28a745;color:#fff}
+        .btn-danger{background:#dc3545;color:#fff}
+        .btn-warning{background:#ffc107;color:#333}
+        .btn-info{background:#17a2b8;color:#fff}
+        .btn-cm{background:#00d2ff;color:#000}
+        .btn-mb{background:#38ef7d;color:#000}
+        .btn-outline{background:#fff;color:#667eea;border:2px solid #667eea}
+        
+        .file-grid{display:grid;gap:8px;max-height:450px;overflow-y:auto}
+        .file-row{display:flex;align-items:center;justify-content:space-between;padding:10px 15px;background:#f8f9fa;border-radius:10px;border-left:5px solid #e0e0e0;transition:.3s;flex-wrap:wrap;gap:8px}
+        .file-row.cm-row{border-left-color:#00d2ff}
+        .file-row.mb-row{border-left-color:#38ef7d}
+        .file-row:hover{box-shadow:0 3px 15px rgba(0,0,0,0.1)}
+        .file-info{display:flex;align-items:center;gap:10px;flex:1;min-width:200px}
+        .file-name{font-weight:700;color:#333;word-break:break-word}
+        .file-meta{font-size:.8em;color:#666}
+        .file-actions{display:flex;gap:5px;flex-wrap:wrap}
+        .route-hint{font-size:.8em;font-weight:700;margin-top:2px}
+        
+        .progress-wrap{margin:15px 0;display:none}
+        .progress-bar{height:30px;background:#e0e0e0;border-radius:15px;overflow:hidden}
+        .progress-fill{height:100%;background:linear-gradient(90deg,#667eea,#764ba2);width:0;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.85em;transition:width .3s}
+        .progress-text{display:flex;justify-content:space-between;margin-top:5px;font-size:.8em;color:#666}
+        
+        .modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center}
+        .modal.show{display:flex}
+        .modal-box{background:#fff;border-radius:15px;padding:25px;max-width:600px;width:95%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.5)}
+        .modal-box h3{color:#302b63;margin-bottom:15px}
+        .modal-info{background:#f8f9fa;padding:10px 15px;border-radius:8px;margin-bottom:15px}
+        
+        .form-group{margin-bottom:15px}
+        .form-group label{display:block;font-weight:700;margin-bottom:5px;color:#555}
+        .loc-options{display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+        .loc-opt{flex:1;min-width:130px;padding:12px;border:2px solid #e0e0e0;border-radius:10px;text-align:center;cursor:pointer;transition:.3s}
+        .loc-opt:hover{border-color:#667eea}
+        .loc-opt.sel{border-color:#667eea;background:#f0f4ff}
+        .loc-opt .ico{font-size:1.5em}
+        .loc-opt .lbl{font-weight:700;font-size:.85em}
+        .loc-opt .sub{font-size:.7em;color:#888}
+        
+        .path-row{display:flex;gap:8px}
+        .path-row input{flex:1;padding:10px;border:2px solid #e0e0e0;border-radius:8px;font-size:.9em}
+        .path-row input:focus{border-color:#667eea;outline:none}
+        .browse-btn{padding:10px 15px;background:#f0f0f0;border:2px solid #e0e0e0;border-radius:8px;cursor:pointer;font-size:1.1em}
+        .browse-btn:hover{background:#e0e0e0}
+        
+        .browser-wrap{display:none;margin-top:10px}
+        .browser-path{background:#e8f4f8;padding:8px 12px;border-radius:5px;margin-bottom:8px;font-size:.8em;word-break:break-all}
+        .browser-list{max-height:250px;overflow-y:auto;border:2px solid #e0e0e0;border-radius:8px}
+        .browser-item{display:flex;align-items:center;padding:8px 12px;cursor:pointer;gap:8px;border-bottom:1px solid #f0f0f0}
+        .browser-item:hover{background:#f0f4ff}
+        .browser-item.folder{color:#667eea;font-weight:700}
+        .browser-item.drive{color:#e67e22;font-weight:700}
+        
+        .radio-grp label{display:flex;align-items:center;padding:10px;border:2px solid #e0e0e0;border-radius:8px;margin-bottom:6px;cursor:pointer;transition:.3s}
+        .radio-grp label:hover{border-color:#667eea;background:#f8f9ff}
+        .radio-grp input[type="radio"]{margin-right:10px;width:auto}
+        .modal-btns{display:flex;gap:10px;justify-content:flex-end;margin-top:15px}
+        
+        .toast{position:fixed;bottom:20px;right:20px;background:#333;color:#fff;padding:12px 20px;border-radius:10px;z-index:99999;display:none;box-shadow:0 10px 30px rgba(0,0,0,0.3);max-width:350px}
+        .toast.show{display:block;animation:slideUp .3s}
+        .toast.ok{background:#28a745}
+        .toast.err{background:#dc3545}
+        .toast.inf{background:#17a2b8}
+        @keyframes slideUp{from{transform:translateY(100px)}to{transform:translateY(0)}}
+        
+        .empty{text-align:center;padding:40px;color:#999}
+        .action-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+        
+        @media(max-width:600px){
+            .header h1{font-size:1.3em}
+            .btn{padding:8px 15px;font-size:.8em}
+            .file-row{flex-direction:column}
+            .loc-options{flex-direction:column}
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔄 File Transfer - Fixed</h1>
+            <p>Folder Upload • Correct Routing • Original Names</p>
+            <div class="stats-row">
+                <span class="stat cm">💻 CM: <b id="cmCt">0</b></span>
+                <span class="stat mb">📱 MB: <b id="mbCt">0</b></span>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>📤 Upload Files & Folders</h2>
+            <p style="color:#666;margin-bottom:8px">Device: <b id="myDevice"></b></p>
+            <div class="info-box">
+                ✅ <b>Now supports FOLDER upload!</b> Select entire folders to upload all contents.
+            </div>
+            <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+    <button class="btn btn-primary" onclick="document.getElementById('upInput').click()">📄 Select Files</button>
+    <button class="btn btn-info" onclick="document.getElementById('folderInput').click()">📁 Select Folder</button>
+</div>
+<input type="file" id="folderInput" webkitdirectory directory style="display:none">
+
+            <div class="upload-box" id="upBox">
+                <div style="font-size:3em">📁</div>
+                <div style="font-size:1.1em;color:#667eea;font-weight:700">Click or Drop Files & Folders</div>
+                <div style="font-size:.85em;color:#999">Files AND folders supported</div>
+                <input type="file" id="upInput" multiple>
+            </div>
+            <div class="progress-wrap" id="progWrap">
+                <div class="progress-bar"><div class="progress-fill" id="progFill">0%</div></div>
+                <div class="progress-text"><span id="progText"></span><span id="progSpeed"></span></div>
+            </div>
+            <div id="upMsg" style="text-align:center;margin-top:10px"></div>
+        </div>
+        
+        <div class="card">
+            <h2>📂 Browse Files</h2>
+            <div class="info-box">
+                🔄 <b>Auto-Routing:</b> CM (Computer) → 📱 Mobile &nbsp;|&nbsp; MB (Mobile) → 💻 Computer
+            </div>
+            <div class="action-row">
+                <button class="btn btn-primary" onclick="loadFiles()">🔄 Refresh</button>
+                <button class="btn btn-info" onclick="filter('all')">📋 All</button>
+                <button class="btn btn-cm" onclick="filter('CM')">💻 CM</button>
+                <button class="btn btn-mb" onclick="filter('MB')">📱 MB</button>
+                <button class="btn btn-warning" onclick="delAll()">🗑 Delete All</button>
+            </div>
+            <div class="file-grid" id="fileGrid">
+                <div class="empty"><div style="font-size:3em">📭</div>No files</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal" id="dlModal">
+        <div class="modal-box">
+            <h3>⬇ Download File</h3>
+            <div class="modal-info" id="dlInfo"></div>
+            <div class="form-group">
+                <label>Save Location:</label>
+                <div class="loc-options">
+                    <div class="loc-opt sel" id="locDef" onclick="selLoc('def')">
+                        <div class="ico">📥</div><div class="lbl">Default</div>
+                        <div class="sub" id="defPath">-</div>
+                    </div>
+                    <div class="loc-opt" id="locCust" onclick="selLoc('cust')">
+                        <div class="ico">📂</div><div class="lbl">Choose</div>
+                        <div class="sub">Browse</div>
+                    </div>
+                </div>
+            </div>
+            <div id="custSection" style="display:none">
+                <div class="form-group">
+                    <label>Folder Path:</label>
+                    <div class="path-row">
+                        <input type="text" id="custPath" placeholder="C:\Users\...">
+                        <button class="browse-btn" onclick="openBrowser()">📁</button>
+                    </div>
+                </div>
+                <div class="browser-wrap" id="browserWrap">
+                    <div class="browser-path" id="browserPath"></div>
+                    <div class="browser-list" id="browserList"></div>
+                    <div style="margin-top:8px;display:flex;gap:5px">
+                        <button class="btn btn-info btn-sm" onclick="browserUp()">⬆ Up</button>
+                        <button class="btn btn-primary btn-sm" onclick="browserSelect()">✅ Select</button>
+                    </div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>If file exists:</label>
+                <div class="radio-grp">
+                    <label><input type="radio" name="dup" value="copy" checked> 📝 Make a Copy</label>
+                    <label><input type="radio" name="dup" value="replace"> 🔄 Replace</label>
+                    <label><input type="radio" name="dup" value="skip"> ⏭ Skip</label>
+                </div>
+            </div>
+            <div class="modal-btns">
+                <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-success" onclick="doDownload()">⬇ Download</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="toast" id="toast"></div>
+    
+    <script>
+    var curFile=null,curFilter='all',locType='def',browserPath='';
+    
+    function getDevice(){
+        var m=/android|iphone|ipad|ipod|webos|windows phone/i.test(navigator.userAgent.toLowerCase());
+        return{code:m?'MB':'CM',name:m?'📱 Mobile':'💻 Computer'};
+    }
+    var myDev=getDevice();
+    document.getElementById('myDevice').textContent=myDev.name+' ('+myDev.code+')';
+    
+    function toast(m,t){var e=document.getElementById('toast');e.textContent=m;e.className='toast '+t+' show';setTimeout(function(){e.classList.remove('show')},4000)}
+    function fmtSize(b){if(!b)return'0 B';var u=['B','KB','MB','GB','TB'],i=Math.floor(Math.log(b)/Math.log(1024));return(b/Math.pow(1024,i)).toFixed(2)+' '+u[i]}
+    function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
+    
+    var ub=document.getElementById('upBox');
+    var ui=document.getElementById('upInput');
+    var fi=document.getElementById('folderInput');
+    
+    // Click upload zone for files
+    ub.onclick=function(){ui.click()};
+    
+    // Single/Multiple file selection
+    ui.onchange=function(){
+        if(this.files.length){
+            var files=[];
+            for(var i=0;i<this.files.length;i++)files.push(this.files[i]);
+            upload(files);
+        }
+    };
+    
+    // Folder selection
+    fi.onchange=function(){
+        if(this.files.length){
+            var files=[];
+            for(var i=0;i<this.files.length;i++)files.push(this.files[i]);
+            upload(files);
+        }
+    };
+    
+    // Drag and drop (handles both files and folders)
+    ub.ondragover=function(e){e.preventDefault();this.classList.add('dragover')};
+    ub.ondragleave=function(){this.classList.remove('dragover')};
+    ub.ondrop=function(e){
+        e.preventDefault();this.classList.remove('dragover');
+        var items=e.dataTransfer.items;
+        if(items&&items.length){
+            getAllFilesFromDrop(items).then(function(files){
+                if(files.length)upload(files);
+            });
+        }else if(e.dataTransfer.files.length){
+            var files=[];
+            for(var i=0;i<e.dataTransfer.files.length;i++)files.push(e.dataTransfer.files[i]);
+            upload(files);
+        }
+    };
+    
+    // Recursively get all files from dropped items
+    function getAllFilesFromDrop(items){
+        return new Promise(function(resolve){
+            var allFiles=[];
+            var pending=[];
+            
+            function readEntry(entry,path){
+                return new Promise(function(res){
+                    if(entry.isFile){
+                        entry.file(function(file){
+                            file.relativePath=path+file.name;
+                            allFiles.push(file);
+                            res();
+                        });
+                    }else if(entry.isDirectory){
+                        var reader=entry.createReader();
+                        var subPromises=[];
+                        function readBatch(){
+                            reader.readEntries(function(entries){
+                                if(entries.length){
+                                    for(var i=0;i<entries.length;i++){
+                                        subPromises.push(readEntry(entries[i],path+entry.name+'/'));
+                                    }
+                                    readBatch();
+                                }else{
+                                    Promise.all(subPromises).then(res);
+                                }
+                            });
+                        }
+                        readBatch();
+                    }else{res();}
+                });
+            }
+            
+            for(var i=0;i<items.length;i++){
+                var entry=items[i].webkitGetAsEntry?items[i].webkitGetAsEntry():null;
+                if(entry){
+                    pending.push(readEntry(entry,''));
+                }else if(items[i].kind==='file'){
+                    var file=items[i].getAsFile();
+                    if(file)allFiles.push(file);
+                }
+            }
+            
+            Promise.all(pending).then(function(){
+                resolve(allFiles);
+            });
+        });
+    }
+    
+    function upload(files){
+        if(!files||!files.length){toast('No files selected!','err');return}
+        
+        var totalSize=0;
+        for(var i=0;i<files.length;i++)totalSize+=files[i].size;
+        
+        var fd=new FormData();
+        for(var i=0;i<files.length;i++){
+            var f=files[i];
+            var fname=f.relativePath||f.webkitRelativePath||f.name;
+            fd.append('files',f,fname);
+        }
+        fd.append('source',myDev.code);
+        
+        var pw=document.getElementById('progWrap'),pf=document.getElementById('progFill');
+        var pt=document.getElementById('progText'),ps=document.getElementById('progSpeed');
+        pw.style.display='block';pf.style.width='0%';pf.textContent='0%';
+        document.getElementById('upMsg').innerHTML='<span style="color:#17a2b8">📤 Uploading '+files.length+' file(s)...</span>';
+        
+        var xhr=new XMLHttpRequest(),st=Date.now(),lastL=0,lastT=st;
+        xhr.upload.onprogress=function(e){
+            if(e.lengthComputable){
+                var p=Math.round(e.loaded/e.total*100),now=Date.now();
+                var sp=(e.loaded-lastL)/((now-lastT)/1000);
+                pf.style.width=p+'%';pf.textContent=p+'%';
+                pt.textContent=fmtSize(e.loaded)+' / '+fmtSize(e.total);
+                ps.textContent=fmtSize(sp)+'/s';
+                lastL=e.loaded;lastT=now;
+            }
+        };
+        xhr.onload=function(){
+            pw.style.display='none';
+            if(xhr.status==200){
+                try{
+                    var r=JSON.parse(xhr.responseText);
+                    document.getElementById('upMsg').innerHTML='<span style="color:#28a745">✅ '+r.message+'</span>';
+                    toast(r.message,'ok');
+                }catch(e){
+                    document.getElementById('upMsg').innerHTML='<span style="color:#28a745">✅ Done!</span>';
+                }
+            }else{document.getElementById('upMsg').innerHTML='<span style="color:#dc3545">❌ Failed</span>'}
+            ui.value='';fi.value='';loadFiles();
+        };
+        xhr.onerror=function(){pw.style.display='none';toast('Connection error!','err')};
+        xhr.open('POST','/upload',true);
+        xhr.timeout=0;
+        xhr.send(fd);
+    }
+    
+    function loadFiles(){
+        document.getElementById('fileGrid').innerHTML='<div class="empty">Loading...</div>';
+        fetch('/list-files').then(function(r){return r.json()}).then(function(d){showFiles(d.files||[]);updateStats()});
+    }
+    
+    function showFiles(files){
+        var g=document.getElementById('fileGrid');
+        if(curFilter!='all')files=files.filter(function(f){return f.source==curFilter});
+        if(!files.length){g.innerHTML='<div class="empty"><div style="font-size:3em">📭</div>No files</div>';return}
+        var h='';
+        for(var i=0;i<files.length;i++){
+            var f=files[i],cm=f.source=='CM';
+            var icon=cm?'💻':'📱';
+            var route=cm?'📱 Mobile':'💻 Computer';
+            var rc=cm?'#38ef7d':'#00d2ff';
+            h+='<div class="file-row '+(cm?'cm-row':'mb-row')+'">'+
+                '<div class="file-info"><div style="font-size:1.8em">'+icon+'</div><div>'+
+                '<div class="file-name">'+esc(f.name)+'</div>'+
+                '<div class="file-meta">'+fmtSize(f.size)+' • '+f.modified+' • '+
+                '<span class="device-tag '+(cm?'tag-cm':'tag-mb')+'">'+icon+' '+(cm?'CM':'MB')+'</span></div>'+
+                '<div class="route-hint" style="color:'+rc+'">🔄 → <b>'+route+'</b></div></div></div>'+
+                '<div class="file-actions">'+
+                '<button class="btn btn-primary" onclick="openDl(\''+esc(f.name)+'\',\''+f.source+'\','+f.size+')">⬇ Download</button>'+
+                '<button class="btn btn-danger" onclick="delFile(\''+esc(f.name)+'\')">🗑</button></div></div>';
+        }
+        g.innerHTML=h;
+    }
+    
+    function filter(f){curFilter=f;loadFiles()}
+    
+    function openDl(name,src,size){
+        curFile={name:name,source:src,size:size};
+        var cm=src=='CM';
+        var route=cm?'📱 Mobile':'💻 Computer';
+        var defFolder=cm?'Mobile_Ready':'Downloads';
+        
+        document.getElementById('dlInfo').innerHTML=
+            '<div style="font-weight:700">'+esc(name)+'</div>'+
+            '<div style="font-size:.85em;color:#666">'+fmtSize(size)+' • From: '+
+            '<span class="device-tag '+(cm?'tag-cm':'tag-mb')+'">'+(cm?'💻 CM':'📱 MB')+'</span></div>'+
+            '<div style="margin-top:5px;color:#17a2b8;font-weight:700">🔄 Downloads to: <b>'+route+'</b></div>';
+        
+        document.getElementById('defPath').textContent='📁 '+defFolder;
+        locType='def';
+        document.getElementById('locDef').classList.add('sel');
+        document.getElementById('locCust').classList.remove('sel');
+        document.getElementById('custSection').style.display='none';
+        document.getElementById('browserWrap').style.display='none';
+        document.getElementById('custPath').value='';
+        document.querySelector('input[name="dup"][value="copy"]').checked=true;
+        document.getElementById('dlModal').classList.add('show');
+    }
+    
+    function closeModal(){document.getElementById('dlModal').classList.remove('show');curFile=null}
+    
+    function selLoc(t){
+        locType=t;
+        document.getElementById('locDef').classList.toggle('sel',t=='def');
+        document.getElementById('locCust').classList.toggle('sel',t=='cust');
+        document.getElementById('custSection').style.display=t=='cust'?'block':'none';
+    }
+    
+function doDownload(){
+    if(!curFile)return;
+    var dup=document.querySelector('input[name="dup"]:checked').value;
+    var url='/download/'+encodeURIComponent(curFile.name)+'?duplicate='+dup+'&source='+curFile.source;
+    if(locType=='cust'){
+        var cp=document.getElementById('custPath').value.trim();
+        if(!cp){toast('Enter a path!','err');return}
+        url+='&path='+encodeURIComponent(cp);
+        closeModal();
+        fetch(url).then(function(r){return r.json()}).then(function(d){
+            toast(d.message||'Saved!','ok');
+        }).catch(function(){toast('Download failed!','err')});
+    } else {
+        // No custom path → stream to browser (works on Android too)
+        closeModal();
+        var a=document.createElement('a');
+        a.href=url;
+        a.download=curFile.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        toast('⬇ Downloading '+curFile.name+'...','ok');
+    }
+}
+    
+    function openBrowser(){
+        var p=document.getElementById('custPath').value.trim()||'C:\\';
+        browserPath=p;loadBrowser(p);
+    }
+    
+    function loadBrowser(p){
+        fetch('/browse?path='+encodeURIComponent(p)).then(function(r){return r.json()}).then(function(d){
+            browserPath=d.current_path;
+            document.getElementById('browserPath').textContent='📂 '+browserPath;
+            var h='';
+            if(d.parent)h+='<div class="browser-item folder" onclick="loadBrowser(\''+esc(d.parent)+'\')">📁 ..</div>';
+            if(d.drives&&d.drives.length)for(var i=0;i<d.drives.length;i++)h+='<div class="browser-item drive" onclick="loadBrowser(\''+esc(d.drives[i])+'\')">💾 '+d.drives[i]+'</div>';
+            if(d.folders&&d.folders.length)for(var i=0;i<d.folders.length;i++){var n=d.folders[i].split('\\').pop();h+='<div class="browser-item folder" onclick="loadBrowser(\''+esc(d.folders[i])+'\')">📁 '+n+'</div>'}
+            document.getElementById('browserList').innerHTML=h||'<div style="padding:20px;text-align:center;color:#999">Empty folder</div>';
+            document.getElementById('browserWrap').style.display='block';
+        });
+    }
+    
+    function browserUp(){var p=browserPath.replace(/\\/g,'/').split('/').filter(function(x){return x});p.pop();loadBrowser(p.length?p.join('\\'):'C:\\')}
+    function browserSelect(){document.getElementById('custPath').value=browserPath;document.getElementById('browserWrap').style.display='none';toast('✅ Path selected!','ok')}
+    
+    function delFile(name){
+        if(!confirm('Delete "'+name+'"?'))return;
+        fetch('/delete/'+encodeURIComponent(name),{method:'DELETE'}).then(function(r){return r.json()}).then(function(d){
+            if(d.status=='success'){loadFiles();toast('Deleted!','ok')}
+            else{fetch('/delete/'+encodeURIComponent(name),{method:'POST'}).then(function(){loadFiles()})}
+        });
+    }
+    
+    function delAll(){
+        if(!confirm('Delete ALL files?'))return;
+        fetch('/list-files').then(function(r){return r.json()}).then(function(d){
+            if(d.files){var ps=d.files.map(function(f){return fetch('/delete/'+encodeURIComponent(f.name),{method:'DELETE'})});
+            Promise.all(ps).then(function(){loadFiles();toast('All deleted!','ok')})}
+        });
+    }
+    
+    function updateStats(){
+        fetch('/list-files').then(function(r){return r.json()}).then(function(d){
+            var cm=0,mb=0;
+            if(d.files)for(var i=0;i<d.files.length;i++){if(d.files[i].source=='CM')cm++;else mb++}
+            document.getElementById('cmCt').textContent=cm;
+            document.getElementById('mbCt').textContent=mb;
+        });
+    }
+    
+    document.getElementById('dlModal').onclick=function(e){if(e.target==this)closeModal()};
+    window.onload=function(){loadFiles();setInterval(updateStats,30000)};
+</script>
+</body>
+</html>
+"""
+
+class FixedHandler(http.server.SimpleHTTPRequestHandler):
+    
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        query = urllib.parse.parse_qs(parsed.query)
+        
+        if path in ['/', '/index.html']:
+            self.send_html()
+        elif path == '/list-files':
+            self.json_resp(self.get_files())
+        elif path == '/browse':
+            self.json_resp(self.browse_folder(query.get('path', ['C:\\'])[0]))
+        elif path.startswith('/download/'):
+            self.handle_download(path, query)
+        else:
+            self.send_error(404)
+    
+    def do_POST(self):
+        path = urllib.parse.urlparse(self.path).path
+        if path == '/upload':
+            self.handle_upload()
+        elif path.startswith('/delete/'):
+            self.handle_delete()
+        else:
+            self.send_error(404)
+    
+    def do_DELETE(self):
+        if self.path.startswith('/delete/'):
+            self.handle_delete()
+        else:
+            self.send_error(404)
+    
+    def handle_upload(self):
+        try:
+            import cgi
+            content_type = self.headers.get('Content-Type', '')
+            if 'multipart/form-data' not in content_type:
+                self.send_error(400); return
+
+            environ = {
+                'REQUEST_METHOD': 'POST',
+                'CONTENT_TYPE': content_type,
+                'CONTENT_LENGTH': self.headers.get('Content-Length', '0'),
+            }
+
+            form = cgi.FieldStorage(
+                fp=self.rfile,
+                headers=self.headers,
+                environ=environ,
+                keep_blank_values=True
+            )
+
+            detected_source = 'CM'
+            if 'source' in form:
+                src = form['source'].value.strip()
+                if src in ['CM', 'MB']:
+                    detected_source = src
+
+            icon = "💻" if detected_source == 'CM' else "📱"
+            print(f"🔍 Source: {icon} {detected_source}")
+
+            uploaded_files = []
+            files_field = form['files'] if 'files' in form else []
+            if not isinstance(files_field, list):
+                files_field = [files_field]
+
+            # Group files by top-level folder
+            folder_files = {}  # folder_name -> list of (relative_path, item)
+            lone_files = []
+
+            for item in files_field:
+                if not item.filename:
+                    continue
+                rel = item.filename.replace('\\', '/')
+                parts = rel.split('/')
+                if len(parts) > 1:
+                    top = parts[0]
+                    folder_files.setdefault(top, []).append((rel, item))
+                else:
+                    lone_files.append(item)
+
+            # Save lone files normally
+            for item in lone_files:
+                filename = item.filename.replace('\\', '/').split('/')[-1]
+                if not filename: continue
+                name_no_ext, ext = os.path.splitext(filename)
+                save_path = os.path.join(SHARED_FOLDER, filename)
+                counter = 1
+                while os.path.exists(save_path):
+                    new_name = f"{name_no_ext}_({counter}){ext}"
+                    save_path = os.path.join(SHARED_FOLDER, new_name)
+                    counter += 1
+                final_name = os.path.basename(save_path)
+                with open(save_path, 'wb') as out:
+                    shutil.copyfileobj(item.file, out)
+                file_tags[final_name] = detected_source
+                uploaded_files.append(final_name)
+                print(f"   📄 [{detected_source}] {final_name}")
+
+            # Save folders as real subfolders, register only the top folder name
+            for folder_name, file_list in folder_files.items():
+                # Handle duplicate folder names
+                dest_folder = os.path.join(SHARED_FOLDER, folder_name)
+                counter = 1
+                while os.path.exists(dest_folder):
+                    dest_folder = os.path.join(SHARED_FOLDER, f"{folder_name}_({counter})")
+                    counter += 1
+                final_folder_name = os.path.basename(dest_folder)
+
+                for rel_path, item in file_list:
+                    # Remap rel_path to use final_folder_name in case of rename
+                    remapped = final_folder_name + '/' + '/'.join(rel_path.split('/')[1:])
+                    full_path = os.path.join(SHARED_FOLDER, remapped.replace('/', os.sep))
+                    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                    with open(full_path, 'wb') as out:
+                        shutil.copyfileobj(item.file, out)
+
+                # Register folder as single entry
+                file_tags[final_folder_name] = detected_source
+                uploaded_files.append(final_folder_name)
+                print(f"   📁 [{detected_source}] {final_folder_name}/ ({len(file_list)} files)")
+
+            save_tags()
+
+            msg = f"Uploaded {len(uploaded_files)} from {icon} {detected_source}"
+            print(f"✅ {msg}")
+            self.json_resp({'status': 'success', 'message': msg, 'files': uploaded_files, 'source': detected_source})
+
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            import traceback; traceback.print_exc()
+            self.json_resp({'status': 'error', 'message': str(e)}, 500)
+    
+    def handle_download(self, path, query):
+        filename = urllib.parse.unquote(path[10:])
+        src_path = os.path.join(SHARED_FOLDER, filename)
+
+        if not os.path.realpath(src_path).startswith(os.path.realpath(SHARED_FOLDER)):
+            self.json_resp({'status': 'error', 'message': 'Forbidden'}, 403); return
+
+        if not os.path.exists(src_path):
+            self.json_resp({'status': 'error', 'message': 'Not found'}, 404); return
+
+        dup_action = query.get('duplicate', ['copy'])[0]
+        source = query.get('source', [file_tags.get(filename, 'CM')])[0]
+        custom_path = query.get('path', [None])[0]
+
+        # ── SERVER-SIDE SAVE (custom path supplied) ──────────────────────────
+        if custom_path:
+            dest_dir = urllib.parse.unquote(custom_path)
+            try:
+                os.makedirs(dest_dir, exist_ok=True)
+            except Exception as e:
+                self.json_resp({'status': 'error', 'message': f'Bad path: {e}'}); return
+
+            dest_path = os.path.join(dest_dir, filename)
+
+            if os.path.exists(dest_path):
+                if dup_action == 'skip':
+                    self.json_resp({'status': 'success', 'message': f'Skipped: {filename}'}); return
+                elif dup_action == 'copy':
+                    name, ext = os.path.splitext(filename)
+                    c = 1
+                    while os.path.exists(dest_path):
+                        dest_path = os.path.join(dest_dir, f"{name}_({c}){ext}")
+                        c += 1
+                elif dup_action == 'replace':
+                    if os.path.isdir(dest_path):
+                        shutil.rmtree(dest_path)
+                    elif os.path.isfile(dest_path):
+                        os.remove(dest_path)
+
+            try:
+                if os.path.isdir(src_path):
+                    shutil.copytree(src_path, dest_path)
+                else:
+                    with open(src_path, 'rb') as src, open(dest_path, 'wb') as dst:
+                        while True:
+                            chunk = src.read(CHUNK_SIZE)
+                            if not chunk: break
+                            dst.write(chunk)
+                print(f"✅ Saved to: {dest_path}")
+                self.json_resp({'status': 'success',
+                                'message': f'Saved: {os.path.basename(dest_path)}',
+                                'path': dest_path})
+            except Exception as e:
+                print(f"❌ Copy error: {e}")
+                self.json_resp({'status': 'error', 'message': f'Failed: {e}'})
+            return
+
+        # ── BROWSER STREAM (no custom path — phone/browser downloads the file) ─
+        # For folders, zip them on the fly
+        import zipfile, io
+
+        if os.path.isdir(src_path):
+            # Stream as ZIP
+            send_name = filename + '.zip'
+            mime_type = 'application/zip'
+            self.send_response(200)
+            self.send_header('Content-Type', mime_type)
+            self.send_header('Content-Disposition',
+                            f'attachment; filename="{send_name}"')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            try:
+                with zipfile.ZipFile(self.wfile, 'w',
+                                    compression=zipfile.ZIP_DEFLATED,
+                                    allowZip64=True) as zf:
+                    for root, dirs, fnames in os.walk(src_path):
+                        for fn in fnames:
+                            fp = os.path.join(root, fn)
+                            arcname = os.path.relpath(fp, os.path.dirname(src_path))
+                            zf.write(fp, arcname)
+            except Exception as e:
+                print(f"❌ Zip stream error: {e}")
+        else:
+            # Stream single file
+            file_size = os.path.getsize(src_path)
+            mime_type, _ = mimetypes.guess_type(src_path)
+            if not mime_type:
+                mime_type = 'application/octet-stream'
+            self.send_response(200)
+            self.send_header('Content-Type', mime_type)
+            self.send_header('Content-Disposition',
+                            f'attachment; filename="{filename}"')
+            self.send_header('Content-Length', str(file_size))
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            try:
+                with open(src_path, 'rb') as src:
+                    while True:
+                        chunk = src.read(CHUNK_SIZE)
+                        if not chunk: break
+                        self.wfile.write(chunk)
+            except Exception as e:
+                print(f"❌ Stream error: {e}")
+        
+        # Stream to browser
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/octet-stream')
+        self.send_header('Content-Disposition', f'attachment; filename="{os.path.basename(dest_path)}"')
+        self.send_header('Content-Length', str(file_size))
+        self.end_headers()
+        
+        with open(src_path, 'rb') as src:
+            while True:
+                chunk = src.read(CHUNK_SIZE)
+                if not chunk: break
+                self.wfile.write(chunk)
+    
+    def handle_delete(self):
+        filename = urllib.parse.unquote(self.path.split('/delete/')[-1])
+        fp = os.path.join(SHARED_FOLDER, filename)
+        if not os.path.realpath(fp).startswith(os.path.realpath(SHARED_FOLDER)):
+            self.json_resp({'status': 'error'}, 403); return
+        try:
+            if os.path.isfile(fp):
+                os.remove(fp)
+            elif os.path.isdir(fp):
+                shutil.rmtree(fp)
+            else:
+                self.json_resp({'status': 'error', 'message': 'Not found'}, 404); return
+            if filename in file_tags:
+                del file_tags[filename]; save_tags()
+            self.json_resp({'status': 'success'})
+        except Exception as e:
+            print(f"❌ Delete error: {e}")
+            self.json_resp({'status': 'error', 'message': str(e)}, 500)
+    
+    def get_files(self):
+        files = []
+        if os.path.exists(SHARED_FOLDER):
+            for f in os.listdir(SHARED_FOLDER):
+                fp = os.path.join(SHARED_FOLDER, f)
+                if os.path.isfile(fp):
+                    s = os.stat(fp)
+                    files.append({'name': f, 'size': s.st_size,
+                        'modified': datetime.fromtimestamp(s.st_mtime).strftime('%Y-%m-%d %H:%M'),
+                        'source': file_tags.get(f, 'CM'), 'type': 'file'})
+                elif os.path.isdir(fp):
+                    # Sum folder size
+                    total = sum(os.path.getsize(os.path.join(r, fn))
+                        for r, _, fns in os.walk(fp) for fn in fns)
+                    s = os.stat(fp)
+                    files.append({'name': f, 'size': total,
+                        'modified': datetime.fromtimestamp(s.st_mtime).strftime('%Y-%m-%d %H:%M'),
+                        'source': file_tags.get(f, 'CM'), 'type': 'folder'})
+        files.sort(key=lambda x: x['name'].lower())
+        return {'files': files}
+    
+    def browse_folder(self, p):
+        try:
+            if not os.path.exists(p): p = 'C:\\'
+            drives = get_drives() if os.path.normpath(p) in ['C:\\', 'C:'] else []
+            folders = []
+            try:
+                for item in os.listdir(p):
+                    ip = os.path.join(p, item)
+                    if os.path.isdir(ip) and not item.startswith('.') and not item.startswith('$') and item != 'System Volume Information':
+                        folders.append(ip)
+            except: pass
+            folders.sort(key=lambda x: x.lower())
+            parent = os.path.dirname(p)
+            if parent == p or not os.path.exists(parent): parent = None
+            return {'current_path': p, 'folders': folders, 'drives': drives, 'parent': parent}
+        except:
+            return {'current_path': 'C:\\', 'folders': [], 'drives': get_drives(), 'parent': None}
+    
+    def send_html(self):
+        self.send_response(200); self.send_header('Content-type', 'text/html; charset=utf-8'); self.end_headers()
+        self.wfile.write(HTML_PAGE.encode('utf-8'))
+    
+    def json_resp(self, data, status=200):
+        self.send_response(status); self.send_header('Content-type', 'application/json'); self.send_header('Access-Control-Allow-Origin', '*'); self.end_headers()
+        self.wfile.write(json.dumps(data).encode('utf-8'))
+    
+    def log_message(self, format, *args):
+        print(f"[{time.strftime('%H:%M:%S')}] {args[0]}")
+
+def get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80)); ip = s.getsockname()[0]; s.close(); return ip
+    except: return "127.0.0.1"
+
+if __name__ == "__main__":
+    local_ip = get_local_ip()
+    print(f"\n📱 Mobile: http://{local_ip}:{PORT}")
+    print(f"💻 PC: http://localhost:{PORT}")
+    print(f"\n📂 Storage: {SHARED_FOLDER}")
+    print(f"💻 PC DL: {COMPUTER_DOWNLOADS}")
+    print(f"📱 MB DL: {MOBILE_DOWNLOADS}")
+    print(f"\n✅ FIXES:")
+    print(f"   • Folder upload supported (webkitdirectory + drop)")
+    print(f"   • Original filenames preserved with extensions")
+    print(f"   • CM→Mobile, MB→Computer routing")
+    print(f"   • 11-18+ GB streaming support")
+    print("\n" + "=" * 70 + "\nPress Ctrl+C to stop\n")
+    
+    server = socketserver.ThreadingTCPServer(("", PORT), FixedHandler)
+    server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.timeout = 600
+    webbrowser.open(f"http://localhost:{PORT}")
+    try: server.serve_forever()
+    except KeyboardInterrupt: print("\n👋 Stopped."); server.shutdown()
+
+
+
+  #  24-04-2026  DEEPSEEK,DEEPSEEK,CLAUDE,CG
+
+
+
+-- WANT TO MAKE THE JAVA .APK FOR MOBILE RELATED WORK
+
+-- THE MAIN PROBLEM IM THIS SETUP IS MOBILE CAN ONLY DOWNLOAD TO DOWNLOADs, NOT TO /storage/emulated/
+- SO WANT TO MAKE .APK WHICH ALLOW THE SHARED FOLDER READ/WRITE
+
+-- WORKING:
+- THE PYTHON WILL USEd AS SERVER,
+- THE WEBVIEWR WILL OPEN THE PYTHON SENDED HTML FILE FOR UI
+- THE JAVA BRIDGE WORK WILL ALLOW /storage/emulated/ RELATED WORKING
+: BY THIS WE CAN ADD ANY FILE/FOLDER TO /storage/emulated/ BY PATH
+
+-- WANT TO BULID BY GH ACTIONS(NO ANDROID STUDIO)
+- SO GIVE REQUIRED STEPs & YML & GRADLEs & ALL THINGs (AS THIS IS MY FIRST TIME)
+- DEBUG APK FOR TESTING
+
+- MANAGE_EXTERNAL_STORAGE (Full access mode), NO PLAYSTORE UPLOAD PLANNING, AS FOR MY PERSONAL USE
+-Pure WebView controller
+
+:Python HTML controls everything
+
+:Android only executes file op
+:  MEANS ENGINE IS PYTHON, ONLY APK IS PERMISSION HANDLER & UI FOR MOBILE
+-LAN only (localhost / WiFi)
+-- MAIN REASON TO MAKE .APK IS TO GET  /storage/emulated/  LEVEL ACCESS FOR SHREd STORAGE
+- THE EVERYTHING WILL WORK AS IT IS NOW, ONLY MY CURRENT SYSTEM WILL GET  /storage/emulated/ LEVEL WORKING,
+- SO NO NEED TO CHANGE IN MY ABOVE PYTHON,  ONLY GIVE .APK PROGRAMs WHICH DO THIS GREATLY,
+
+-- AND TO CONNECT BY URL, DO LIKE:
+- AT STARTUP OF APPLICATION EVERYTIME ASK FOR "URL" TO CONNECT,
+: DEFAULT URL IS RECENTLY USEd URL,  SO STORE IT IN APK's STORAGE ON DEVICE
+
+
+-- GIVE ALL REQUIRED FILEs, WITH POSITION IN FOLDER
+- APK NAME IS "MJJB-83"
+
+
+-- ASK IF ANY QUERY, DONT GIVE CODE UNTIL ASK
